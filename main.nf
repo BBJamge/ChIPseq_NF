@@ -110,7 +110,6 @@ process BamStats {
     """
 }
 
-/*
 process TrimFastq {
     publishDir "$params.outdir/QUALfiltered",mode:'copy'
     label 'env_qc_small'
@@ -126,8 +125,6 @@ process TrimFastq {
 	${params.seqtkdir}/seqtk trimfq ${x} > ${id}_qualtrimmed.fastq
     """
 }
-*/
-
 
 process AlignBowtie2 {
     //publishDir "$params.outdir/Aligned_BAMS",mode:'copy'
