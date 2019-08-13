@@ -7,7 +7,7 @@
 params.ref_seq = "/groups/berger/lab/cluster_files/Bhagyshree/TAIR10/Sequence/Bowtie2Index/genome"
 //params.ref_id = "genome"
 params.files  =   "bams/*.bam"
-params.tmpdir = "$TMPDIR"
+//params.tmpdir = "$TMPDIR"
 params.seqtkdir = "/groups/berger/lab/cluster_files/Bhagyshree/seqtk"
 params.extendReads = 200
 params.bin = "10"
