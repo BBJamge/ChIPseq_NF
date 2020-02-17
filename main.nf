@@ -126,6 +126,7 @@ process TrimFastq {
     """
 }
 
+
 process AlignBowtie2 {
     //publishDir "$params.outdir/Aligned_BAMS",mode:'copy'
     label 'env_align_medium'
@@ -151,7 +152,8 @@ process Sam2Bam {
     set id, file(x) from outsam
 
     output:
-    set id, file("${id}.sorted.bam*") into alignedbam
+    set id, file("${id}.sorted.bam") into alignedbam
+//    set id2, file("${id2}.sorted.bam.bai") into alignedbambai
 
     script:
     """
@@ -160,6 +162,49 @@ process Sam2Bam {
     samtools index ${id}.sorted.bam
     """
 }
+
+
+process rmdup {
+    label 'env_picard_medium'
+    publishDir "$params.outdir/Aligned_BAMS/Dedup",mode:'copy'
+
+    input:
+    set id, file(x) from alignedbam
+
+    output:
+    set id, file("${id}.dedup.sorted.bam") into dedupbam
+    set id, file("${id}.dedup.sorted.bam.bai") into dedupbambai
+
+    script:
+    """
+    samtools index ${x}
+    java -jar \$EBROOTPICARD/picard.jar MarkDuplicates I=${x} O=${id}.dedup.bam M=${id}.dedup.metrics.txt
+    samtools sort ${id}.dedup.bam > ${id}.dedup.sorted.bam
+    samtools index ${id}.dedup.sorted.bam
+    """
+}
+
+
+/*process corPlot {
+    label 'env_deep_medium'
+    publishDir "$params.outdir/QC_plots",mode:'copy'
+    
+    input:
+    set id, file(allbams) from dedupbam.collect().toSortedList()
+    set id, file(allbambai) from dedupbambai.collect().toSortedList()
+    
+    output:
+    set id, file("QCall*") into cor_npz
+    
+    script:
+    """ 
+        multiBamSummary bins --bamfiles ${allbams} --ignoreDuplicates -o QCall.npz
+//      plotCorrelation --corData QCall.npz --corMethod spearman --colorMap RdYlBu --skipZeros --plotNumbers --removeOutliers -p heatmap -o QCall_spearman.pdf --outFileCorMatrix QCall_spearmanCorr_readC.tab
+//      plotCorrelation --corData QCall.npz --corMethod pearson --colorMap RdYlBu --skipZeros --plotNumbers --removeOutliers -p heatmap -o QCall_pearson.pdf --outFileCorMatrix QCall_pearsonCorr_readC.tab
+    """
+}*/
+
+
 
 workflow.onComplete {
 	println ( workflow.success ? "Successfull!" : "Messed Up something" )
