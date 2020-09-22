@@ -4,11 +4,9 @@
 * Parameters
 **************/
 
-params.ref_seq = "/groups/berger/lab/cluster_files/Bhagyshree/TAIR10/Sequence/Bowtie2Index/genome"
-//params.ref_id = "genome"
+
+params.ref_seq = "tair10"
 params.files  =   "bams/*.bam"
-//params.tmpdir = "$TMPDIR"
-params.seqtkdir = "/groups/berger/lab/cluster_files/Bhagyshree/seqtk"
 params.extendReads = 200
 params.bin = "10"
 params.genomeSize = 119146348
@@ -17,17 +15,40 @@ log.info """\
 outdir	: ${params.outdir}
 """
 
-//bowtie2_index = Channel.fromPath( params.ref_fol + "/" + params.ref_id + "*" )
+
 
 /**************
 * Start
 **************/
+
+//Set parameters
+if ( params.ref_seq == "tair10"){
+  params.index="library://elin.axelsson/index/index_bowtie2_tair10:v2.4.1-release-47"
+}
+
+
 // first put all bam files into channel "bamfiles"
 
 bamfiles = Channel
   .fromPath(params.files)
   .map { file -> [ file.baseName, file] }
 // each item in the channel has a file name and an actual file
+
+
+// index
+process get_bowtie2_index {
+
+  input:
+  file params.index
+
+  output:
+  file params.ref_seq into bw2index
+
+  script:
+  """
+  singularity run ${params.index}
+  """
+}
 
 
 /*************
@@ -152,7 +173,7 @@ process Sam2Bam {
     set id, file(x) from outsam
 
     output:
-    set id, file("${id}.sorted.bam") into alignedbam
+    set id, file("${id}.sorted.bam"), file("${id}.sorted.bam.bai") into alignedbam
 //    set id2, file("${id2}.sorted.bam.bai") into alignedbambai
 
     script:
@@ -169,40 +190,53 @@ process rmdup {
     publishDir "$params.outdir/Aligned_BAMS/Dedup",mode:'copy'
 
     input:
-    set id, file(x) from alignedbam
+    set id, file(x), file(bai) from alignedbam
 
     output:
     set id, file("${id}.dedup.sorted.bam") into dedupbam
-    set id, file("${id}.dedup.sorted.bam.bai") into dedupbambai
+
 
     script:
     """
-    samtools index ${x}
     java -jar \$EBROOTPICARD/picard.jar MarkDuplicates I=${x} O=${id}.dedup.bam M=${id}.dedup.metrics.txt
-    samtools sort ${id}.dedup.bam > ${id}.dedup.sorted.bam
-    samtools index ${id}.dedup.sorted.bam
     """
 }
 
+dedupbam.into{dedupbam;dedupbam_index}
 
-/*process corPlot {
+process index_rmdup {
+
+  input:
+  set id, file(bam) from dedupbam_index
+
+  output:
+  set id, file("${id}.dedup.sorted.bam.bai") into dedupbambai
+
+  script:
+  """
+  samtools sort ${id}.dedup.bam > ${id}.dedup.sorted.bam
+  samtools index ${id}.dedup.sorted.bam
+  """
+  }
+
+process corPlot {
     label 'env_deep_medium'
     publishDir "$params.outdir/QC_plots",mode:'copy'
-    
+
     input:
     set id, file(allbams) from dedupbam.collect().toSortedList()
     set id, file(allbambai) from dedupbambai.collect().toSortedList()
-    
+
     output:
     set id, file("QCall*") into cor_npz
-    
+
     script:
-    """ 
+    """
         multiBamSummary bins --bamfiles ${allbams} --ignoreDuplicates -o QCall.npz
 //      plotCorrelation --corData QCall.npz --corMethod spearman --colorMap RdYlBu --skipZeros --plotNumbers --removeOutliers -p heatmap -o QCall_spearman.pdf --outFileCorMatrix QCall_spearmanCorr_readC.tab
 //      plotCorrelation --corData QCall.npz --corMethod pearson --colorMap RdYlBu --skipZeros --plotNumbers --removeOutliers -p heatmap -o QCall_pearson.pdf --outFileCorMatrix QCall_pearsonCorr_readC.tab
     """
-}*/
+}
 
 
 
