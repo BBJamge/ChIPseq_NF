@@ -55,12 +55,8 @@ process get_bowtie2_index {
 * processes for BAMtoFASTQ
 *************/
 
-//bamfiles.combine(Channel.from(params.bin.split(","))).set {to_fastq}
-
 process Bam2Fastq {
-    label 'env_bed_small'
     tag "$id"
-    //publishDir "$params.outdir/",mode:'copy'
 
     input:
     set id, file(bam) from bamfiles
@@ -79,12 +75,12 @@ process Bam2Fastq {
 **************/
 
 bam_fastq.into{bam_fastq; bam_qc; bam_for_stats; bam_for_trim}
+
 /**************
 * QC
 **************/
 process FASTQC {
     publishDir "$params.outdir/QUALfiltered",mode:'copy'
-    label 'env_qc_small'
 
     input:
     set id, file(input) from bam_qc
@@ -100,7 +96,6 @@ process FASTQC {
 
 process FilterFastq {
     publishDir "$params.outdir/FilterFastq",mode:'copy'
-    label 'env_qc_small'
 
     input:
     set id, file(input) from bam_fastq
@@ -143,7 +138,7 @@ process TrimFastq {
 
     script:
     """
-	${params.seqtkdir}/seqtk trimfq ${x} > ${id}_qualtrimmed.fastq
+	  seqtk trimfq ${x} > ${id}_qualtrimmed.fastq
     """
 }
 
@@ -154,14 +149,14 @@ process AlignBowtie2 {
 
     input:
     set id, file(x) from filtered_fastq
-    //file(indices) from bowtie2_index
+    file(genomeIndex) from bw2index
 
     output:
     set id, file("${id}.sam") into outsam
 
     script:
     """
-    bowtie2 -x "$params.ref_seq" -U ${x} -S ${id}.sam
+    bowtie2 -x ${genomeIndex}/${genomeIndex} -U ${x} -S ${id}.sam
     """
 }
 
@@ -193,12 +188,17 @@ process rmdup {
     set id, file(x), file(bai) from alignedbam
 
     output:
-    set id, file("${id}.dedup.sorted.bam") into dedupbam
+    set id, file("${id}.dedup.bam") into dedupbam
 
 
     script:
     """
-    java -jar \$EBROOTPICARD/picard.jar MarkDuplicates I=${x} O=${id}.dedup.bam M=${id}.dedup.metrics.txt
+    java -jar /usr/picard/picard.jar MarkDuplicates \
+     I=${x} \
+     O=${id}.dedup.bam \
+     M=${id}.dedup.metrics.txt \
+     ASSUME_SORTED=true \
+     REMOVE_DUPLICATES=true
     """
 }
 
@@ -210,7 +210,8 @@ process index_rmdup {
   set id, file(bam) from dedupbam_index
 
   output:
-  set id, file("${id}.dedup.sorted.bam.bai") into dedupbambai
+  file("${id}.dedup.sorted.bam") into dedupsortbam
+  file("${id}.dedup.sorted.bam.bai") into dedupbambai
 
   script:
   """
@@ -220,23 +221,22 @@ process index_rmdup {
   }
 
 process corPlot {
-    label 'env_deep_medium'
     publishDir "$params.outdir/QC_plots",mode:'copy'
 
     input:
-    set id, file(allbams) from dedupbam.collect().toSortedList()
-    set id, file(allbambai) from dedupbambai.collect().toSortedList()
+    file (allbams) from dedupsortbam.toSortedList()
+    file (allbais) from dedupbambai.toSortedList()
 
     output:
-    set id, file("QCall*") into cor_npz
+    file("QCall*") into cor_npz
 
     script:
     """
-        multiBamSummary bins --bamfiles ${allbams} --ignoreDuplicates -o QCall.npz
-//      plotCorrelation --corData QCall.npz --corMethod spearman --colorMap RdYlBu --skipZeros --plotNumbers --removeOutliers -p heatmap -o QCall_spearman.pdf --outFileCorMatrix QCall_spearmanCorr_readC.tab
-//      plotCorrelation --corData QCall.npz --corMethod pearson --colorMap RdYlBu --skipZeros --plotNumbers --removeOutliers -p heatmap -o QCall_pearson.pdf --outFileCorMatrix QCall_pearsonCorr_readC.tab
+    multiBamSummary bins --bamfiles ${allbams} --ignoreDuplicates -o QCall.npz
     """
 }
+
+//dedupsortbam.collect().toSortedList().println()
 
 
 
