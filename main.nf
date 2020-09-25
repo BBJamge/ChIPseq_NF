@@ -7,6 +7,7 @@
 
 params.ref_seq = "tair10"
 params.files  =   "bams/*.bam"
+params.seqmode = "SR" // "PE"
 params.extendReads = 200
 params.bin = "10"
 params.genomeSize = 119146348
@@ -15,24 +16,67 @@ log.info """\
 outdir	: ${params.outdir}
 """
 
+if( !(params.seqmode in ['PE','SR'] )) { exit 1, "Invalid sequencing mode: use --seqmode to choose either PE or SE" }
 
 
 /**************
 * Start
 **************/
 
+/**********************************
+* read files of correct type
+***********************************/
+
+// Infer file type
+
+if(params.seqmode == "PE"){
+  if (params.files.split('/').takeRight(1)==['*.fastq'] | params.files.split('/').takeRight(1)==['*.fq']){
+    exit 1. "Please end reads path with *_{1,2}.fq when using PE fastq files"
+  }
+  if (params.files.split('/').takeRight(1)==['*_{1,2}.fastq'] | params.files.split('/').takeRight(1)==['*_{1,2}.fq']){
+    params.type = "fastq"
+  }
+}
+if(params.files.split('/').takeRight(1)==['*.bam']){ //PE or SE
+  params.type = "bam"
+}
+if(params.files.split('/').takeRight(1)==['*.fq'] | params.files.split('/').takeRight(1)==['*.fastq'] ){
+  params.type = "fastq"
+}
+if( !params.type ){
+  exit 1. "Type params not set"
+}
+
+/******************
+* Create channels *
+*******************/
+
+if( params.seqmode == "PE" & params.type=="fastq"){
+  reads = Channel
+                  .fromFilePairs( params.files, size: -1 )
+                  .ifEmpty { error "Invalid path: point to path containing fq files using --reads flag" }
+}
+else {
+reads = Channel
+                .fromPath( params.files )
+                .ifEmpty { error "Invalid path: point to path containing BAM/fq files using --reads flag" }
+                .map { file -> tuple(file.baseName, file) }
+}
+if( params.type == "fastq"){
+  reads.into{reads;fq_files} // put into read_pairs later
+}
+
+
+
+
+
+
+
+
 //Set parameters
 if ( params.ref_seq == "tair10"){
   params.index="library://elin.axelsson/index/index_bowtie2_tair10:v2.4.1-release-47"
 }
-
-
-// first put all bam files into channel "bamfiles"
-
-bamfiles = Channel
-  .fromPath(params.files)
-  .map { file -> [ file.baseName, file] }
-// each item in the channel has a file name and an actual file
 
 
 // index
@@ -59,16 +103,31 @@ process Bam2Fastq {
     tag "$id"
 
     input:
-    set id, file(bam) from bamfiles
+    set id, file(bam) from reads
 
     output:
-    set val(id), file('*.fastq') into bam_fastq
+    set val(id), file("${id}*fastq") into bam_fastq
+
+    when:
+    params.type=="bam"
 
     script:
-    """
-    bedtools bamtofastq -i ${bam} -fq ${id}.fastq
-    """
+    if (params.seqmode == 'SR')
+      """
+      bedtools bamtofastq -i ${bam} -fq ${id}.fastq
+      """
+    else if (params.seqmode == 'PE')
+      """
+      bedtools bamtofastq -i ${bam} -fq ${id}_1.fastq -fq2 ${id}_2.fastq
+      """
     }
+
+/***********************
+* COPY FASTQ FILES TO CHANNEL(if fastq files provided)
+***********************/
+  if(params.type=="fastq"){
+    read_pairs = read_pairs.mix(fq_files)
+  }
 
 /**************
 * Split bam_fastq into 4 for 4 different process
@@ -98,17 +157,29 @@ process FilterFastq {
     publishDir "$params.outdir/FilterFastq",mode:'copy'
 
     input:
-    set id, file(input) from bam_fastq
+    set datasetID, file(reads) from bam_fastq
+
 
     output:
-    set id, file("${id}_filtered.fastq") into filtered_fastq
-    file("${id}_filtered.fastq")
+    set datasetID, file(reads) into filtered_fastq
+    file("${datasetID}*trimming_report.txt")
+    file("${datasetID}*fastqc.{html,zip}")
 
     script:
-    """
-    fastq_quality_filter -q 30 -p 90 -Q33 -i ${input} -v -o ${id}_filtered.fastq
-    """
+    if (params.seqmode == 'PE')
+        """
+        trim_galore --dont_gzip --stringency 1 --fastqc --length 5 --paired ${reads}
+        """
+    else if (params.seqmode == 'SR')
+        """
+        trim_galore --dont_gzip --stringency 1 --fastqc --length 5 ${reads}
+        """
+    else
+    error "Invalid sequencing mode: choose either PE or SR"
 }
+
+
+
 
 process BamStats {
     publishDir "$params.outdir/QUALfiltered",mode:'copy'
@@ -155,9 +226,14 @@ process AlignBowtie2 {
     set id, file("${id}.sam") into outsam
 
     script:
-    """
-    bowtie2 -x ${genomeIndex}/${genomeIndex} -U ${x} -S ${id}.sam
-    """
+    if (params.seqmode == 'PE')
+        """
+        bowtie2 -x ${genomeIndex}/${genomeIndex} -1 ${x[0]} -2 ${x[0]} -S ${id}.sam
+        """
+    else if (params.seqmode == 'SR')
+        """
+        bowtie2 -x ${genomeIndex}/${genomeIndex} -U ${x} -S ${id}.sam
+        """
 }
 
 process Sam2Bam {

@@ -8,15 +8,19 @@ set -o pipefail
 
 # Single read
 
-T_DIR="test_01"
+T_DIR="test_02"
 mkdir -p ${T_DIR}
 
 nextflow run ../main.nf \
     -profile "test_local" \
-    --files "test_files/bams/sr/tiny/*.bam" \
+    --seqmode "PE" \
+    --files "test_files/bams/pe/*.bam" \
     --outdir "${T_DIR}/results/" \
     -w ${T_DIR}/work \
     -resume
+
+
+    # check structure and content of output
 
     # check structure and content of output
 
@@ -66,7 +70,7 @@ nextflow run ../main.nf \
         exit 1
     fi
 
-    if [ ! $(ls -1q $T_DIR/results/FilterFastq | wc -l) -eq 12 ] ; then ## 3*4
+    if [ ! $(ls -1q $T_DIR/results/FilterFastq | wc -l) -eq 24 ] ; then ## 3*4*2
         echo "wrong number of results/FilterFastq"
         exit 1
     fi
@@ -76,7 +80,7 @@ nextflow run ../main.nf \
         exit 1
     fi
 
-    if [ ! $(ls -1q $T_DIR/results/QUALfiltered  | wc -l) -eq 12 ] ; then ## 3*4
+    if [ ! $(ls -1q $T_DIR/results/QUALfiltered  | wc -l) -eq 24 ] ; then ## 3*4*2
         echo "wrong number of results/QUALfiltered"
         exit 1
     fi
