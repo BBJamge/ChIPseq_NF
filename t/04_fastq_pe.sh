@@ -8,13 +8,13 @@ set -o pipefail
 
 # Single read
 
-T_DIR="test_02"
+T_DIR="test_04"
 mkdir -p ${T_DIR}
 
 nextflow run ../main.nf \
     -profile "test_local" \
     --seqmode "PE" \
-    --files "test_files/bams/pe/*.bam" \
+    --files "test_files/fastq/pe/*_{1,2}.fq" \
     --outdir "${T_DIR}/results/" \
     -w ${T_DIR}/work \
     -resume
@@ -75,7 +75,7 @@ nextflow run ../main.nf \
         exit 1
     fi
 
-    if [ ! $(ls -1q $T_DIR/results/QC_plots | wc -l) -eq 5 ] ; then 
+    if [ ! $(ls -1q $T_DIR/results/QC_plots | wc -l) -eq 5 ] ; then
         echo "wrong number of results/QC_plots"
         exit 1
     fi

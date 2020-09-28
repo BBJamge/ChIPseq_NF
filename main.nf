@@ -126,7 +126,7 @@ process Bam2Fastq {
 * COPY FASTQ FILES TO CHANNEL(if fastq files provided)
 ***********************/
   if(params.type=="fastq"){
-    read_pairs = read_pairs.mix(fq_files)
+    bam_fastq = bam_fastq.mix(fq_files)
   }
 
 /**************
@@ -309,10 +309,27 @@ process corPlot {
     script:
     """
     multiBamSummary bins --bamfiles ${allbams} --ignoreDuplicates -o QCall.npz
-    """
-}
+    plotCorrelation --corData QCall.npz \
+      --corMethod spearman \
+      --colorMap RdYlBu \
+      --skipZeros \
+      --plotNumbers \
+      --removeOutliers \
+      -p heatmap \
+      -o QCall_spearman.pdf \
+      --outFileCorMatrix QCall_spearmanCorr_readC.tab
 
-//dedupsortbam.collect().toSortedList().println()
+    plotCorrelation --corData QCall.npz \
+      --corMethod pearson \
+      --colorMap RdYlBu \
+      --skipZeros \
+      --plotNumbers \
+      --removeOutliers \
+      -p heatmap \
+      -o QCall_pearson.pdf \
+      --outFileCorMatrix QCall_pearsonCorr_readC.tab
+      """
+  }
 
 
 

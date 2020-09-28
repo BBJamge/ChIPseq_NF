@@ -71,12 +71,12 @@ nextflow run ../main.nf \
         exit 1
     fi
 
-    if [ ! $(ls -1q $T_DIR/results/QC_plots | wc -l) -eq 1 ] ; then ## more later
+    if [ ! $(ls -1q $T_DIR/results/QC_plots | wc -l) -eq 5 ] ; then 
         echo "wrong number of results/QC_plots"
         exit 1
     fi
 
-    if [ ! $(ls -1q $T_DIR/results/QUALfiltered  | wc -l) -eq 12 ] ; then ## 3*4
+    if [ ! $(ls -1q $T_DIR/results/QUALfiltered  | wc -l) -eq 12 ] ; then
         echo "wrong number of results/QUALfiltered"
         exit 1
     fi
