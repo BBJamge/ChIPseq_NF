@@ -16,7 +16,17 @@ log.info """\
 outdir	: ${params.outdir}
 """
 
+
+
+
+//Set parameters
+if ( params.ref_seq == "tair10"){
+  params.index="library://elin.axelsson/index/index_bowtie2_tair10:v2.4.1-release-47"
+}
+
+//Basic parameter check
 if( !(params.seqmode in ['PE','SR'] )) { exit 1, "Invalid sequencing mode: use --seqmode to choose either PE or SE" }
+if ( !params.index ) exit 1, "Error: no Bowtie2 index"
 
 
 /**************
@@ -28,6 +38,8 @@ if( !(params.seqmode in ['PE','SR'] )) { exit 1, "Invalid sequencing mode: use -
 ***********************************/
 
 // Infer file type
+
+println params.files
 
 if(params.seqmode == "PE"){
   if (params.files.split('/').takeRight(1)==['*.fastq'] | params.files.split('/').takeRight(1)==['*.fq']){
@@ -73,10 +85,6 @@ if( params.type == "fastq"){
 
 
 
-//Set parameters
-if ( params.ref_seq == "tair10"){
-  params.index="library://elin.axelsson/index/index_bowtie2_tair10:v2.4.1-release-47"
-}
 
 
 // index
