@@ -1,7 +1,9 @@
 Elin:
-- Containers
-- User specifc paths
-- Basic tests
+- Containers - done
+- User specifc paths - done
+- PE reads - done
+- Fastq input - done
+- Basic tests - done
 
 
 Additional:

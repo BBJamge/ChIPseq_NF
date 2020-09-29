@@ -4,11 +4,10 @@
 * Parameters
 **************/
 
-params.ref_seq = "/groups/berger/lab/cluster_files/Bhagyshree/TAIR10/Sequence/Bowtie2Index/genome"
-//params.ref_id = "genome"
+
+params.ref_seq = "tair10"
 params.files  =   "bams/*.bam"
-//params.tmpdir = "$TMPDIR"
-params.seqtkdir = "/groups/berger/lab/cluster_files/Bhagyshree/seqtk"
+params.seqmode = "SR" // "PE"
 params.extendReads = 200
 params.bin = "10"
 params.genomeSize = 119146348
@@ -17,53 +16,138 @@ log.info """\
 outdir	: ${params.outdir}
 """
 
-//bowtie2_index = Channel.fromPath( params.ref_fol + "/" + params.ref_id + "*" )
+
+
+
+//Set parameters
+if ( params.ref_seq == "tair10"){
+  params.index="library://elin.axelsson/index/index_bowtie2_tair10:v2.4.1-release-47"
+}
+
+//Basic parameter check
+if( !(params.seqmode in ['PE','SR'] )) { exit 1, "Invalid sequencing mode: use --seqmode to choose either PE or SE" }
+if ( !params.index ) exit 1, "Error: no Bowtie2 index"
+
 
 /**************
 * Start
 **************/
-// first put all bam files into channel "bamfiles"
 
-bamfiles = Channel
-  .fromPath(params.files)
-  .map { file -> [ file.baseName, file] }
-// each item in the channel has a file name and an actual file
+/**********************************
+* read files of correct type
+***********************************/
+
+// Infer file type
+
+println params.files
+
+if(params.seqmode == "PE"){
+  if (params.files.split('/').takeRight(1)==['*.fastq'] | params.files.split('/').takeRight(1)==['*.fq']){
+    exit 1. "Please end reads path with *_{1,2}.fq when using PE fastq files"
+  }
+  if (params.files.split('/').takeRight(1)==['*_{1,2}.fastq'] | params.files.split('/').takeRight(1)==['*_{1,2}.fq']){
+    params.type = "fastq"
+  }
+}
+if(params.files.split('/').takeRight(1)==['*.bam']){ //PE or SE
+  params.type = "bam"
+}
+if(params.files.split('/').takeRight(1)==['*.fq'] | params.files.split('/').takeRight(1)==['*.fastq'] ){
+  params.type = "fastq"
+}
+if( !params.type ){
+  exit 1. "Type params not set"
+}
+
+/******************
+* Create channels *
+*******************/
+
+if( params.seqmode == "PE" & params.type=="fastq"){
+  reads = Channel
+                  .fromFilePairs( params.files, size: -1 )
+                  .ifEmpty { error "Invalid path: point to path containing fq files using --reads flag" }
+}
+else {
+reads = Channel
+                .fromPath( params.files )
+                .ifEmpty { error "Invalid path: point to path containing BAM/fq files using --reads flag" }
+                .map { file -> tuple(file.baseName, file) }
+}
+if( params.type == "fastq"){
+  reads.into{reads;fq_files} // put into read_pairs later
+}
+
+
+
+
+
+
+
+
+
+
+// index
+process get_bowtie2_index {
+
+  input:
+  file params.index
+
+  output:
+  file params.ref_seq into bw2index
+
+  script:
+  """
+  singularity run ${params.index}
+  """
+}
 
 
 /*************
 * processes for BAMtoFASTQ
 *************/
 
-//bamfiles.combine(Channel.from(params.bin.split(","))).set {to_fastq}
-
 process Bam2Fastq {
-    label 'env_bed_small'
     tag "$id"
-    //publishDir "$params.outdir/",mode:'copy'
 
     input:
-    set id, file(bam) from bamfiles
+    set id, file(bam) from reads
 
     output:
-    set val(id), file('*.fastq') into bam_fastq
+    set val(id), file("${id}*fastq") into bam_fastq
+
+    when:
+    params.type=="bam"
 
     script:
-    """
-    bedtools bamtofastq -i ${bam} -fq ${id}.fastq
-    """
+    if (params.seqmode == 'SR')
+      """
+      bedtools bamtofastq -i ${bam} -fq ${id}.fastq
+      """
+    else if (params.seqmode == 'PE')
+      """
+      bedtools bamtofastq -i ${bam} -fq ${id}_1.fastq -fq2 ${id}_2.fastq
+      """
     }
+
+/***********************
+* COPY FASTQ FILES TO CHANNEL(if fastq files provided)
+***********************/
+  if(params.type=="fastq"){
+    bam_fastq = bam_fastq.mix(fq_files)
+  }
 
 /**************
 * Split bam_fastq into 4 for 4 different process
 **************/
 
 bam_fastq.into{bam_fastq; bam_qc; bam_for_stats; bam_for_trim}
+
 /**************
 * QC
 **************/
 process FASTQC {
     publishDir "$params.outdir/QUALfiltered",mode:'copy'
-    label 'env_qc_small'
 
     input:
     set id, file(input) from bam_qc
@@ -79,20 +163,31 @@ process FASTQC {
 
 process FilterFastq {
     publishDir "$params.outdir/FilterFastq",mode:'copy'
-    label 'env_qc_small'
 
     input:
-    set id, file(input) from bam_fastq
+    set datasetID, file(reads) from bam_fastq
+
 
     output:
-    set id, file("${id}_filtered.fastq") into filtered_fastq
-    file("${id}_filtered.fastq")
+    set datasetID, file(reads) into filtered_fastq
+    file("${datasetID}*trimming_report.txt")
+    file("${datasetID}*fastqc.{html,zip}")
 
     script:
-    """
-    fastq_quality_filter -q 30 -p 90 -Q33 -i ${input} -v -o ${id}_filtered.fastq
-    """
+    if (params.seqmode == 'PE')
+        """
+        trim_galore --dont_gzip --stringency 1 --fastqc --length 5 --paired ${reads}
+        """
+    else if (params.seqmode == 'SR')
+        """
+        trim_galore --dont_gzip --stringency 1 --fastqc --length 5 ${reads}
+        """
+    else
+    error "Invalid sequencing mode: choose either PE or SR"
 }
+
+
+
 
 process BamStats {
     publishDir "$params.outdir/QUALfiltered",mode:'copy'
@@ -122,7 +217,7 @@ process TrimFastq {
 
     script:
     """
-	${params.seqtkdir}/seqtk trimfq ${x} > ${id}_qualtrimmed.fastq
+	  seqtk trimfq ${x} > ${id}_qualtrimmed.fastq
     """
 }
 
@@ -133,15 +228,20 @@ process AlignBowtie2 {
 
     input:
     set id, file(x) from filtered_fastq
-    //file(indices) from bowtie2_index
+    file(genomeIndex) from bw2index
 
     output:
     set id, file("${id}.sam") into outsam
 
     script:
-    """
-    bowtie2 -x "$params.ref_seq" -U ${x} -S ${id}.sam
-    """
+    if (params.seqmode == 'PE')
+        """
+        bowtie2 -x ${genomeIndex}/${genomeIndex} -1 ${x[0]} -2 ${x[0]} -S ${id}.sam
+        """
+    else if (params.seqmode == 'SR')
+        """
+        bowtie2 -x ${genomeIndex}/${genomeIndex} -U ${x} -S ${id}.sam
+        """
 }
 
 process Sam2Bam {
@@ -152,7 +252,7 @@ process Sam2Bam {
     set id, file(x) from outsam
 
     output:
-    set id, file("${id}.sorted.bam") into alignedbam
+    set id, file("${id}.sorted.bam"), file("${id}.sorted.bam.bai") into alignedbam
 //    set id2, file("${id2}.sorted.bam.bai") into alignedbambai
 
     script:
@@ -169,40 +269,75 @@ process rmdup {
     publishDir "$params.outdir/Aligned_BAMS/Dedup",mode:'copy'
 
     input:
-    set id, file(x) from alignedbam
+    set id, file(x), file(bai) from alignedbam
 
     output:
-    set id, file("${id}.dedup.sorted.bam") into dedupbam
-    set id, file("${id}.dedup.sorted.bam.bai") into dedupbambai
+    set id, file("${id}.dedup.bam") into dedupbam
+
 
     script:
     """
-    samtools index ${x}
-    java -jar \$EBROOTPICARD/picard.jar MarkDuplicates I=${x} O=${id}.dedup.bam M=${id}.dedup.metrics.txt
-    samtools sort ${id}.dedup.bam > ${id}.dedup.sorted.bam
-    samtools index ${id}.dedup.sorted.bam
+    java -jar /usr/picard/picard.jar MarkDuplicates \
+     I=${x} \
+     O=${id}.dedup.bam \
+     M=${id}.dedup.metrics.txt \
+     ASSUME_SORTED=true \
+     REMOVE_DUPLICATES=true
     """
 }
 
+dedupbam.into{dedupbam;dedupbam_index}
 
-/*process corPlot {
-    label 'env_deep_medium'
+process index_rmdup {
+
+  input:
+  set id, file(bam) from dedupbam_index
+
+  output:
+  file("${id}.dedup.sorted.bam") into dedupsortbam
+  file("${id}.dedup.sorted.bam.bai") into dedupbambai
+
+  script:
+  """
+  samtools sort ${id}.dedup.bam > ${id}.dedup.sorted.bam
+  samtools index ${id}.dedup.sorted.bam
+  """
+  }
+
+process corPlot {
     publishDir "$params.outdir/QC_plots",mode:'copy'
-    
+
     input:
-    set id, file(allbams) from dedupbam.collect().toSortedList()
-    set id, file(allbambai) from dedupbambai.collect().toSortedList()
-    
+    file (allbams) from dedupsortbam.toSortedList()
+    file (allbais) from dedupbambai.toSortedList()
+
     output:
-    set id, file("QCall*") into cor_npz
-    
+    file("QCall*") into cor_npz
+
     script:
-    """ 
-        multiBamSummary bins --bamfiles ${allbams} --ignoreDuplicates -o QCall.npz
-//      plotCorrelation --corData QCall.npz --corMethod spearman --colorMap RdYlBu --skipZeros --plotNumbers --removeOutliers -p heatmap -o QCall_spearman.pdf --outFileCorMatrix QCall_spearmanCorr_readC.tab
-//      plotCorrelation --corData QCall.npz --corMethod pearson --colorMap RdYlBu --skipZeros --plotNumbers --removeOutliers -p heatmap -o QCall_pearson.pdf --outFileCorMatrix QCall_pearsonCorr_readC.tab
     """
-}*/
+    multiBamSummary bins --bamfiles ${allbams} --ignoreDuplicates -o QCall.npz
+    plotCorrelation --corData QCall.npz \
+      --corMethod spearman \
+      --colorMap RdYlBu \
+      --skipZeros \
+      --plotNumbers \
+      --removeOutliers \
+      -p heatmap \
+      -o QCall_spearman.pdf \
+      --outFileCorMatrix QCall_spearmanCorr_readC.tab
+
+    plotCorrelation --corData QCall.npz \
+      --corMethod pearson \
+      --colorMap RdYlBu \
+      --skipZeros \
+      --plotNumbers \
+      --removeOutliers \
+      -p heatmap \
+      -o QCall_pearson.pdf \
+      --outFileCorMatrix QCall_pearsonCorr_readC.tab
+      """
+  }
 
 
 
